@@ -108,7 +108,7 @@ suite({mail: true}, async t => {
         hrStores: Object.keys(DB).filter(k=>k.indexOf('hr') === 0).sort()};
     });
     if(r.dup.length) throw new Error('a source reads an HR copy, not the original: ' + r.dup.join(', '));
-    if(r.hrStores.join(',') !== 'hrAppraisals,hrAttendance,hrConfig,hrIncentives,hrLeave,hrRegularizations,hrSourceMaps')
+    if(r.hrStores.join(',') !== 'hrAppraisals,hrAttendance,hrCompOff,hrConfig,hrIncentives,hrLeave,hrRegularizations,hrSourceMaps')
       throw new Error('HR owns an unexpected set of stores: ' + r.hrStores.join(', '));
     return r.info.length + ' sources, read where they live (' + r.stores.join(', ') + '); HR owns '
       + r.hrStores.length + ' stores of its own and nothing else';
@@ -233,7 +233,7 @@ suite({mail: true}, async t => {
 
   t.section('leave, asked for and decided');
 
-  await t.step('the Dashboard button is Leave Request, not Attendance', async () => {
+  await t.step('the Dashboard header carries the punch clock only: no Leave Request, no Attendance link', async () => {
     const r = await t.eval(async (a)=>{
       const m = DB.team.find(t=>t.id === a.who);
       m.hrAccess = {attendance: 1};
@@ -245,10 +245,10 @@ suite({mail: true}, async t => {
       return {slot, leave: /Leave Request/.test(slot),
         oldButton: /navigate\('hrattendance'\)/.test(slot), punch: /Punch In|Punch Out/.test(slot)};
     }, {who: plain});
-    if(!r.leave) throw new Error('no Leave Request button: ' + r.slot.slice(0, 140));
+    if(r.leave) throw new Error('Leave Request is still on the main Dashboard');
     if(r.oldButton) throw new Error('the old Attendance button is still there');
     if(!r.punch) throw new Error('punching was lost along with it');
-    return 'Punch In and Leave Request on the Dashboard; the Attendance link is gone';
+    return 'Punch In on the Dashboard; Leave Request and the Attendance link are not';
   });
 
   await t.step('a request goes to the branch head for that branch, as Pending', async () => {
@@ -276,10 +276,14 @@ suite({mail: true}, async t => {
       const was = currentUser; currentUser = a.who;
       const picked = hrApproverFor(a.who);
       hrOpenLeaveRequest();
-      document.getElementById('f_hrReqType').value = 'Full Day';
-      document.getElementById('f_hrReqFrom').value = '2026-11-02';
-      document.getElementById('f_hrReqTo').value = '2026-11-04';
+      document.getElementById('f_hrReqType').value = 'Casual Leave';
+      /* two weeks ahead, so the dates never fall into the past */
+      const ahead = n => { const d = new Date(hrToday() + 'T00:00:00'); d.setDate(d.getDate() + n); return hrDateKey(d); };
+      window.zzLeaveMid = ahead(15);
+      document.getElementById('f_hrReqFrom').value = ahead(14);
+      document.getElementById('f_hrReqTo').value = ahead(16);
       document.getElementById('f_hrReqReason').value = 'ZZ family wedding';
+      ['f_hrReqDuration','f_hrReqDelegated'].forEach(id => { const el = document.getElementById(id); if(el && !el.value) el.value = id === 'f_hrReqDuration' ? 'Full Day' : 'No'; });
       await hrSubmitLeaveRequest();
       currentUser = was;
       const row = (DB.hrLeave || []).find(l=>l.userId === a.who && l.reason === 'ZZ family wedding');
@@ -293,7 +297,7 @@ suite({mail: true}, async t => {
     if(!r.row) throw new Error('no request was written');
     if(r.row.status !== 'Pending') throw new Error('it was written ' + r.row.status);
     if(r.row.approverId !== r.here) throw new Error('it went to the wrong approver');
-    if(!r.row.requestedAt || !r.row.reason || r.row.type !== 'Full Day')
+    if(!r.row.requestedAt || !r.row.reason || r.row.type !== 'Casual Leave')
       throw new Error('the request lost its type, reason or date');
     if(!r.stored) throw new Error('it never reached the server');
     if(!r.notified) throw new Error('the branch head was not told');
@@ -323,7 +327,7 @@ suite({mail: true}, async t => {
           && /leave was approved/i.test(n.title || '')).length,
         /* and an approved leave is what the attendance day then reads */
         day: (()=>{ const w = currentUser; currentUser = a.who;
-          const st = hrDayStatus(a.who, '2026-11-03'); currentUser = w; return st.label; })()};
+          const st = hrDayStatus(a.who, window.zzLeaveMid); currentUser = w; return st.label; })()};
     }, {who: plain});
     if(r.outsider.may) throw new Error('a head of another branch could decide it');
     if(r.outsider.inbox) throw new Error('it showed in the wrong head\u2019s inbox');
@@ -353,10 +357,12 @@ suite({mail: true}, async t => {
       const was = currentUser; currentUser = a.who;
       hrOpenLeaveRequest();
       const options = Array.from(document.querySelectorAll('#f_hrReqType option')).map(o=>o.textContent.trim());
-      document.getElementById('f_hrReqType').value = 'Half Day';
+      document.getElementById('f_hrReqType').value = 'Sick Leave';
+      document.getElementById('f_hrReqDuration').value = 'Half Day (First Half)';
       document.getElementById('f_hrReqFrom').value = '2026-12-01';
       document.getElementById('f_hrReqTo').value = '2026-12-01';
       document.getElementById('f_hrReqReason').value = 'ZZ half day for a hospital visit';
+      ['f_hrReqDuration','f_hrReqDelegated'].forEach(id => { const el = document.getElementById(id); if(el && !el.value) el.value = id === 'f_hrReqDuration' ? 'Full Day' : 'No'; });
       hrLeaveBalanceNote();
       out.note = (document.getElementById('hrBalNote') || {}).textContent || '';
       await hrSubmitLeaveRequest();
@@ -366,12 +372,15 @@ suite({mail: true}, async t => {
       /* and an older row, saved before units existed, still reads as whole days */
       out.legacy = hrLeaveDays({from:'2026-11-02', to:'2026-11-03', type:'Casual'});
       out.options = options;
+      out.categories = Array.from(document.querySelectorAll('#f_hrReqCategory option')).map(o=>o.value).filter(Boolean);
       return out;
     }, {who: plain});
     if(r.types.join(',') !== 'Full Day,Half Day,Comp Off')
       throw new Error('the types are ' + r.types.join(', '));
     if(r.labels[1] !== 'Half Day (half a day)') throw new Error('the half-day type is not labelled as one');
-    if(r.options.indexOf('Comp Off') < 0) throw new Error('Comp Off is not offered: ' + r.options.join(', '));
+    /* Comp-Off is a Leave Category now, with a balance of its own, so it is
+       no longer offered a second time as a Leave Type. */
+    if(r.options.indexOf('Comp Off') >= 0) throw new Error('Comp Off is still offered as a type: ' + r.options.join(', '));
     if(r.fullSpan !== 3) throw new Error('three full days came out as ' + r.fullSpan);
     if(r.halfSpan !== 1.5) throw new Error('three half days came out as ' + r.halfSpan);
     if(r.halfOne !== 0.5) throw new Error('one half day came out as ' + r.halfOne);
@@ -434,10 +443,11 @@ suite({mail: true}, async t => {
       const mk = async (reason, from, to) => {
         const was = currentUser; currentUser = a.who;
         hrOpenLeaveRequest();
-        document.getElementById('f_hrReqType').value = 'Full Day';
+        document.getElementById('f_hrReqType').value = 'Casual Leave';
         document.getElementById('f_hrReqFrom').value = from;
         document.getElementById('f_hrReqTo').value = to;
         document.getElementById('f_hrReqReason').value = reason;
+        ['f_hrReqDuration','f_hrReqDelegated'].forEach(id => { const el = document.getElementById(id); if(el && !el.value) el.value = id === 'f_hrReqDuration' ? 'Full Day' : 'No'; });
         await hrSubmitLeaveRequest();
         currentUser = was;
         return (DB.hrLeave || []).find(l=>l.reason === reason);
@@ -643,13 +653,14 @@ suite({mail: true}, async t => {
     if(!r.section || !r.rail) throw new Error('HR is not in their rail by default');
     if(r.items.join(',') !== 'hrattendance')
       throw new Error('the HR group offers them: ' + r.items.join(', '));
-    if(!r.widget || !r.leave) throw new Error('the punch clock or Leave Request is missing');
+    if(!r.widget) throw new Error('the punch clock is missing');
+    if(r.leave) throw new Error('Leave Request is back on the main Dashboard');
     if(r.attendance !== 'hrattendance') throw new Error('their own attendance did not open');
     if(!r.ownOnly) throw new Error('they can see everybody\u2019s attendance by default');
     ['hrdashboard','hrincentive','hrappraisal'].forEach(v=>{
       if(r[v] === v) throw new Error('typing the ' + v + ' route got them in');
     });
-    return 'HR in the rail with Attendance Management alone, the punch clock and Leave Request on the '
+    return 'HR in the rail with Attendance Management alone, the punch clock on the '
       + 'Dashboard, their own records only \u2014 and the HR Dashboard, Incentive and Appraisal all bounce';
   });
 
