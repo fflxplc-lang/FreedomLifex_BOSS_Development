@@ -139,9 +139,10 @@ suite(async t => {
   });
 
   t.section('the other modules with cards');
+  /* Not ported into this repo yet (it is the Blueprint / Business / MIS
+     work, outside Client Journey, Operations and HR): the Execution Tracker and Call Logs card filters. */
 
-  for(const [view, box, label] of [['rms', '#rmsKpis', 'RMS'], ['queries', '#qmsKpis', 'QMS'], ['recommendations', '#recoKpis', 'Execution Tracker'],
-                                    ['calls', '#callKpis', 'Call Logs'], ['projects', '#prjKpis', 'Projects']]){
+  for(const [view, box, label] of [['rms', '#rmsKpis', 'RMS'], ['queries', '#qmsKpis', 'QMS'], ['projects', '#prjKpis', 'Projects']]){
     await t.step(label + ': each card is a filter, drawn selected, and no count moves', async () => {
       const r = await t.eval(async (a)=>{
         const READ = eval(a.READ);

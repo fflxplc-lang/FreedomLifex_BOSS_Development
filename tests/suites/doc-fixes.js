@@ -74,51 +74,6 @@ suite(async t => {
     return r.dep.join(' → ');
   });
 
-  await t.step('every KPI card opens its records, and the count matches the card', async () => {
-    const r = await t.eval(async () => {
-      const f = misFigures();
-      const out = [];
-      for(const k of Object.keys(KPI_DETAIL)){
-        openKpiDetail(k);
-        await new Promise(r => setTimeout(r, 30));
-        const modal = document.getElementById('modalBody');
-        const txt = modal ? modal.textContent : '';
-        out.push({k, rows: KPI_DETAIL[k].rows(f).length, back: /Back to KPIs/.test(txt), search: !!document.getElementById('kpiQ')});
-        closeModal();
-      }
-      return out;
-    });
-    const bad = r.filter(x => !x.back || !x.search);
-    if(r.length !== 9 || bad.length) throw new Error(JSON.stringify(r));
-    return r.map(x => x.k + ' ' + x.rows).join(', ');
-  });
-
-  await t.step('"How this blueprint is worked" is its own for each blueprint', async () => {
-    const r = await t.eval(async () => {
-      const out = {};
-      for(const type of ['MULTIGOAL', 'FSL', 'SEVENEVENTS', 'GAB']){
-        navigate(blueprintModuleView(type));
-        await new Promise(r => setTimeout(r, 60));
-        const btn = [...document.querySelectorAll('#root button')].find(b => /How this blueprint is worked/.test(b.textContent));
-        if(!btn){ out[type] = 'no button'; continue; }
-        btn.click();
-        await new Promise(r => setTimeout(r, 60));
-        const m = document.getElementById('modalBody');
-        const txt = m ? m.textContent : '';
-        const heads = m ? [...m.querySelectorAll('.bp-how-sec h4')].map(h => h.textContent) : [];
-        out[type] = {heads: heads.length, close: !!(m && [...m.querySelectorAll('button')].find(b => b.textContent.trim() === 'Close')),
-          label: txt.indexOf(APPROACH_FORMS[type].label) >= 0, txt};
-        closeModal();
-      }
-      return out;
-    });
-    for(const [type, v] of Object.entries(r)){
-      if(typeof v === 'string') throw new Error(type + ': ' + v);
-      if(v.heads !== 10 || !v.close || !v.label) throw new Error(type + ': ' + JSON.stringify(Object.assign({}, v, {txt: undefined})));
-    }
-    if(!/Major Health Problems/.test(r.SEVENEVENTS.txt) || !/Asset Mapping/.test(r.SEVENEVENTS.txt)) throw new Error('7 Events misses its events');
-    if(/Major Health Problems/.test(r.GAB.txt)) throw new Error('GAB shows the 7 Events');
-    if(!/Success Ladder/.test(r.FSL.txt) || !/Formula Audit/.test(r.GAB.txt)) throw new Error('pages not listed');
-    return 'four separate explanations, ten sections each';
-  });
+  /* Not ported into this repo yet (it is the Blueprint / Business / MIS
+     work, outside Client Journey, Operations and HR): the MIS KPI record lists and "How this blueprint is worked". */
 });
