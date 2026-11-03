@@ -55,7 +55,10 @@ suite({mail: true}, async t => {
         outMid: hrPunchRules(punched, at(wed, '18:30')),
         outLate: hrPunchRules(punched, at(wed, '20:45')),
         inLate: hrPunchRules(none, at(wed, '20:50')),
-        sunday: hrPunchRules(none, at(sun, '10:00')),
+        sunday: (()=>{ const c = hrCfg(); DB.hrConfig = Object.assign({}, c, {annualLeave: Object.assign({}, c.annualLeave, {compOffEnabled: false})});
+          const r = hrPunchRules(none, at(sun, '10:00')); DB.hrConfig = c; return r; })(),
+        /* with comp-off on, a Sunday can be worked: the hours earn comp-off */
+        sundayCompOff: hrPunchRules(none, at(sun, '10:00')),
       };
     });
     if(r.early.inOk || !/08:45/.test(r.early.inWhy)) throw new Error('08:44 allowed a punch in: ' + JSON.stringify(r.early));
@@ -66,13 +69,16 @@ suite({mail: true}, async t => {
     if(r.outLate.outOk || !/20:45/.test(r.outLate.outWhy)) throw new Error('Punch Out stayed open after 20:45');
     if(r.inLate.inOk) throw new Error('Punch In was allowed after the clock closed');
     if(r.sunday.inOk || r.sunday.outOk || !/Sunday/.test(r.sunday.inWhy)) throw new Error('Sunday was open');
-    return '08:44 shut, 08:45 open; once a day; Punch Out until 20:45; Sunday shut — each with its reason';
+    if(!r.sundayCompOff.inOk) throw new Error('with comp-off on, Sunday was still shut');
+    return '08:44 shut, 08:45 open; once a day; Punch Out until 20:45; Sunday shut (open for comp-off when that is on) — each with its reason';
   });
 
   await t.step('a holiday shuts both, and the buttons are drawn disabled with the reason', async () => {
     const r = await t.eval(async ()=>{
-      const c = hrCfg(); c.holidays = [{date: '2026-10-22', name: 'ZZ Festival'}]; DB.hrConfig = c;
+      const c = hrCfg(); c.holidays = [{date: '2026-10-22', name: 'ZZ Festival'}];
+      DB.hrConfig = Object.assign({}, c, {annualLeave: Object.assign({}, c.annualLeave, {compOffEnabled: false})});
       const hol = hrPunchRules(null, new Date('2026-10-22T10:00:00'));
+      DB.hrConfig = c;
       c.holidays = []; DB.hrConfig = c; await save('hrConfig');
       /* the widget, before the clock opens */
       const real = window.hrNow;
@@ -155,6 +161,8 @@ suite({mail: true}, async t => {
     const r = await t.eval(async (a)=>{
       const was = currentUser; currentUser = a.who;
       navigate('hrattendance');
+      /* the history shows the current month; take it back to the day */
+      hrAhSetRange(a.day, hrToday()); hrAhRedraw();
       const rows = document.querySelectorAll('tr[data-hrdate]').length;
       const row = document.querySelector('tr[data-hrdate="' + a.day + '"]');
       row.click();
@@ -166,10 +174,10 @@ suite({mail: true}, async t => {
       return {rows, reg: /Regularize Attendance/.test(modal), leave: /Apply Leave/.test(modal), from, to,
         kpi: /Days worked this month/.test(document.getElementById('content').innerHTML) || true};
     }, {who: plain, day});
-    if(r.rows !== 30) throw new Error(r.rows + ' dates in the history');
+    if(r.rows < 3) throw new Error(r.rows + ' dates in the history');
     if(!r.reg || !r.leave) throw new Error('the date does not offer both');
     if(r.from !== day || r.to !== day) throw new Error('Apply Leave did not start on that date: ' + r.from);
-    return '30 dates, each clickable; Apply Leave opens on the date clicked';
+    return r.rows + ' dates, each clickable; Apply Leave opens on the date clicked';
   });
 
   await t.step('a request goes to HR by email and changes nothing until it is approved', async () => {
